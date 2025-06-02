@@ -12,9 +12,14 @@ import { notifications } from "@mantine/notifications";
 import ModalUpdateServer from "./components/modal-update-server";
 
 function App() {
-  const { search, server, modalAdd, setServerData, setLoadConnect } = useStore(
-    (x) => x,
-  );
+  const {
+    search,
+    server,
+    modalAdd,
+    modalUpdate,
+    setServerData,
+    setLoadConnect,
+  } = useStore((x) => x);
   const [isPending, startTransition] = useTransition();
   const { ref, height } = useElementSize();
 
@@ -41,11 +46,11 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!modalAdd) {
+    if (!modalAdd || !modalUpdate) {
       handleGetServer();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modalAdd]);
+  }, [modalAdd, modalUpdate]);
 
   useEffect(() => {
     EventsOn("status", (result: StatusMessage) => {
