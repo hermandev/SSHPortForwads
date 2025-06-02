@@ -20,7 +20,7 @@ jobs:
           - name: "SSHPortForwads"
             platform: "linux/amd64"
             os: "ubuntu-latest"
-          - name: "SSHPortForwads"
+          - name: "SSHPortForwads.exe"
             platform: "windows/amd64"
             os: "windows-latest"
           - name: "SSHPortForwads"
