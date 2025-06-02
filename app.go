@@ -20,6 +20,12 @@ type SSHForwarder struct {
 	StopChan chan struct{}
 }
 
+type StatusMessage struct {
+	ID      int    `json:"id"`
+	Error   bool   `json:"error"`
+	Message string `json:"message"`
+}
+
 // App struct
 type App struct {
 	ctx         context.Context
@@ -77,7 +83,12 @@ func (a *App) StartSSHForward(id int) {
 	// Ambil data server
 	c, err := repository.GetServerByID(id)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("Failed to fetch server: %v", err))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("Failed to fetch server: %v", err),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
 
@@ -91,7 +102,12 @@ func (a *App) StartSSHForward(id int) {
 	}
 	if _, exists := a.forwardings[ID]; exists {
 		a.mu.Unlock()
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] is active", c.Name))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("[%s] is active", c.Name),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		repository.UpdatePartialServer(c.ID, map[string]interface{}{
 			"con_status": 1,
 		})
@@ -107,14 +123,24 @@ func (a *App) StartSSHForward(id int) {
 		key := []byte(*c.SSHKey)
 		parsedKey, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Failed to parse SSH key: %v", c.Name, err))
+			msg := StatusMessage{
+				ID:      id,
+				Error:   true,
+				Message: fmt.Sprintf("[%s] Failed to parse SSH key: %v", c.Name, err),
+			}
+			runtime.EventsEmit(a.ctx, "status", msg)
 			return
 		}
 		authMethod = ssh.PublicKeys(parsedKey)
 	} else if c.SSHPass != nil && *c.SSHPass != "" {
 		authMethod = ssh.Password(*c.SSHPass)
 	} else {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] No authentication method", c.Name))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("[%s] No authentication method", c.Name),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
 
@@ -127,31 +153,52 @@ func (a *App) StartSSHForward(id int) {
 	sshAddress := fmt.Sprintf("%s:%d", c.IP, c.SSHPort)
 	client, err := ssh.Dial("tcp", sshAddress, sshConfig)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] SSH connection failed: %v", c.Name, err))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("[%s] SSH connection failed: %v", c.Name, err),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
-	runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] SSH connection successful", c.Name))
+
 	defer client.Close()
 
 	// Buka listener lokal
 	listenAddress := "127.0.0.1:" + localPort
 	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Failed to listen on %s: %v", c.Name, listenAddress, err))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("[%s] Failed to listen on %s: %v", c.Name, listenAddress, err),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
-	runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Listen for connection on %s", c.Name, listenAddress))
 	defer listener.Close()
 
 	repository.UpdatePartialServer(c.ID, map[string]interface{}{
 		"con_status": 1,
 	})
 
+	msg := StatusMessage{
+		ID:      id,
+		Error:   false,
+		Message: "SSH connection successful",
+	}
+	runtime.EventsEmit(a.ctx, "status", msg)
+
 	// Loop forwarding
 	for {
 		select {
 		case <-stopChan:
-			runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Forwarding is stoped", c.Name))
+			msg := StatusMessage{
+				ID:      id,
+				Error:   false,
+				Message: fmt.Sprintf("[%s] Forwarding is stoped", c.Name),
+			}
+			runtime.EventsEmit(a.ctx, "status", msg)
 			return
 		default:
 			conn, err := listener.Accept()
@@ -164,7 +211,12 @@ func (a *App) StartSSHForward(id int) {
 				remoteAddress := "127.0.0.1:" + remotePort
 				rconn, err := client.Dial("tcp", remoteAddress)
 				if err != nil {
-					runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Failed to connect to %s: %v", c.Name, remoteAddress, err))
+					msg := StatusMessage{
+						ID:      id,
+						Error:   true,
+						Message: fmt.Sprintf("[%s] Failed to connect to %s: %v", c.Name, remoteAddress, err),
+					}
+					runtime.EventsEmit(a.ctx, "status", msg)
 					return
 				}
 				defer rconn.Close()
@@ -183,7 +235,12 @@ func (a *App) StopSSHForward(id int) {
 
 	c, err := repository.GetServerByID(id)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("Failed to fetch server: %v", err))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("Failed to fetch server: %v", err),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
 
@@ -195,7 +252,12 @@ func (a *App) StopSSHForward(id int) {
 
 	fw, exists := a.forwardings[ID]
 	if !exists {
-		runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Forwarding not found or has been stopped", ID))
+		msg := StatusMessage{
+			ID:      id,
+			Error:   true,
+			Message: fmt.Sprintf("[%s] Forwarding not found or has been stopped", ID),
+		}
+		runtime.EventsEmit(a.ctx, "status", msg)
 		return
 	}
 

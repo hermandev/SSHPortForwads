@@ -5,14 +5,16 @@ import ModalAddServer from "./components/modal-add-server";
 import { useEffect, useTransition } from "react";
 import { LoadConnections } from "../wailsjs/go/main/App";
 import { EventsOff, EventsOn } from "../wailsjs/runtime/runtime";
-import type { Server } from "./type";
+import type { Server, StatusMessage } from "./type";
 import ServerItems from "./components/server-items";
 import { useElementSize } from "@mantine/hooks";
 import { notifications } from "@mantine/notifications";
 import ModalUpdateServer from "./components/modal-update-server";
 
 function App() {
-  const { search, server, modalAdd, setServerData } = useStore((x) => x);
+  const { search, server, modalAdd, setServerData, setLoadConnect } = useStore(
+    (x) => x,
+  );
   const [isPending, startTransition] = useTransition();
   const { ref, height } = useElementSize();
 
@@ -46,16 +48,23 @@ function App() {
   }, [modalAdd]);
 
   useEffect(() => {
-    EventsOn("status", (result) => {
+    EventsOn("status", (result: StatusMessage) => {
+      if (!result.error && result.message === "SSH connection successful") {
+        setLoadConnect(false, result.id);
+      } else {
+        setLoadConnect(false, 0);
+      }
       notifications.show({
-        title: "Status",
-        message: result,
+        title: result.error ? "Oops!" : "Status",
+        message: result.message,
+        color: result.error ? "red" : "blue",
       });
     });
 
     return () => {
       EventsOff("status");
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return (
     <>

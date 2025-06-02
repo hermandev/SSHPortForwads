@@ -7,6 +7,8 @@ type State = {
   server: Server[];
   modalUpdate: boolean;
   selectedData: Server | null;
+  loadConnect: boolean;
+  loadId: number;
 };
 
 type Action = {
@@ -14,6 +16,7 @@ type Action = {
   handleSearch: (state: string) => void;
   setServerData: (state: Server[]) => void;
   openModalUpdate: (state: boolean, item: Server | null) => void;
+  setLoadConnect: (load: boolean, id: number) => void;
 };
 
 const initialState = {
@@ -22,6 +25,8 @@ const initialState = {
   server: [],
   modalUpdate: false,
   selectedData: null,
+  loadConnect: false,
+  loadId: 0,
 };
 
 export const useStore = create<State & Action>()((set) => ({
@@ -37,5 +42,8 @@ export const useStore = create<State & Action>()((set) => ({
   },
   openModalUpdate: (state: boolean, item: Server | null) => {
     set({ modalUpdate: state, selectedData: item });
+  },
+  setLoadConnect: (load: boolean, id: number) => {
+    set({ loadConnect: load, loadId: id });
   },
 }));

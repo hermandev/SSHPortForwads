@@ -30,3 +30,9 @@ export const FormServerSchema = z.object({
 });
 
 export type FormServer = z.infer<typeof FormServerSchema>;
+
+export type StatusMessage = {
+  id: number;
+  error: boolean;
+  message: string;
+};

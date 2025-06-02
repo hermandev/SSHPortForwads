@@ -22,9 +22,9 @@ import {
   StopSSHForward,
   DeleteConnection,
 } from "../../wailsjs/go/main/App";
-import { useTransition } from "react";
 import { useStore } from "../store";
 import { modals } from "@mantine/modals";
+import { useEffect, useState } from "react";
 
 type Props = {
   getServer: () => void;
@@ -32,33 +32,23 @@ type Props = {
 };
 
 function ServerItems({ data, getServer }: Readonly<Props>) {
-  const { openModalUpdate } = useStore((x) => x);
-  const [isPending, startTransition] = useTransition();
-  const handleConnect = (id: number) => {
-    startTransition(() => {
-      StartSSHForward(id).then(() => {
-        return getServer();
-      });
-      return getServer();
-    });
+  const { openModalUpdate, loadConnect, setLoadConnect, loadId } = useStore(
+    (x) => x,
+  );
+  const [loading, setLoading] = useState<boolean>(false);
+
+  const handleConnect = async (id: number) => {
+    setLoadConnect(true, id);
+    await StartSSHForward(id);
   };
 
-  const handleDisConnect = (id: number) => {
-    startTransition(() => {
-      StopSSHForward(id).then(() => {
-        return getServer();
-      });
-      return getServer();
-    });
+  const handleDisConnect = async (id: number) => {
+    setLoadConnect(true, id);
+    await StopSSHForward(id);
   };
 
-  const handleDelete = (id: number) => {
-    startTransition(() => {
-      DeleteConnection(id).then(() => {
-        return getServer();
-      });
-      return getServer();
-    });
+  const handleDelete = async (id: number) => {
+    await DeleteConnection(id);
   };
 
   const handleModalDelete = (id: number) =>
@@ -70,6 +60,13 @@ function ServerItems({ data, getServer }: Readonly<Props>) {
       labels: { confirm: "Confirm", cancel: "Cancel" },
       onConfirm: () => handleDelete(id),
     });
+
+  useEffect(() => {
+    setLoading(loadConnect);
+    getServer();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadConnect, loadId]);
   return (
     <Paper withBorder radius="md" p="sm" mt="md">
       <Group justify="space-between">
@@ -92,7 +89,7 @@ function ServerItems({ data, getServer }: Readonly<Props>) {
                 size="xs"
                 variant="light"
                 onClick={() => handleConnect(data.id)}
-                loading={isPending}
+                loading={loading && loadId === data.id}
                 color="green"
               >
                 Connect
@@ -105,7 +102,7 @@ function ServerItems({ data, getServer }: Readonly<Props>) {
                 size="xs"
                 variant="light"
                 onClick={() => handleDisConnect(data.id)}
-                loading={isPending}
+                loading={loading && loadId === data.id}
                 color="red"
               >
                 Disconnect
