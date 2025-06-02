@@ -36,9 +36,10 @@ jobs:
           submodules: recursive
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version: "1.23.3"
+          check-latest: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -48,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           if ($Env:RUNNER_OS -eq "Windows") {
-            Remove-Item -Recurse -Force node_modules, package-lock.json
+            Remove-Item -Recurse -Force node_modules, package-lock.json -ErrorAction SilentlyContinue
           } elseif ($Env:RUNNER_OS -eq "macOS" -or $Env:RUNNER_OS -eq "Linux") {
             rm -rf node_modules package-lock.json
           }
