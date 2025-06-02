@@ -1,0 +1,63 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    name: Cross-Platform Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.22"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Zig (for cross compilation)
+        uses: korandoru/setup-zig@v1
+        with:
+          zig-version: "0.11.0"
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install frontend dependencies
+        run: npm install
+        working-directory: frontend # ganti jika direktori frontend-mu berbeda
+
+      - name: Build Wails for Windows
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin
+          wails build -platform windows/amd64 -o build/bin/app-windows-amd64.exe
+
+      - name: Build Wails for Linux
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin
+          wails build -platform linux/amd64 -o build/bin/app-linux-amd64
+
+      - name: Build Wails for macOS
+        run: |
+          export PATH=$PATH:$(go env GOPATH)/bin
+          wails build -platform darwin/universal -o build/bin/app-macos-universal
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            build/bin/app-windows-amd64.exe
+            build/bin/app-linux-amd64
+            build/bin/app-macos-universal
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
