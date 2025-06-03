@@ -80,71 +80,43 @@ func (a *App) LoadConnections() ([]models.Server, error) {
 func (a *App) StartSSHForward(id int) {
 	fmt.Println("Start SSH Forwarding")
 
-	// Ambil data server
 	c, err := repository.GetServerByID(id)
 	if err != nil {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("Failed to fetch server: %v", err),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("Failed to fetch server: %v", err)})
 		return
 	}
 
 	ID := strconv.Itoa(c.ID)
-	localPort := strconv.Itoa(c.LocalPort) // contoh: 3307
-	remotePort := strconv.Itoa(c.DBPort)   // contoh: 3306
+	localPort := strconv.Itoa(c.LocalPort)
+	remotePort := strconv.Itoa(c.DBPort)
 
 	a.mu.Lock()
-	if a.forwardings == nil {
-		a.forwardings = make(map[string]*SSHForwarder)
-	}
 	if _, exists := a.forwardings[ID]; exists {
 		a.mu.Unlock()
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("[%s] is active", c.Name),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
-		repository.UpdatePartialServer(c.ID, map[string]interface{}{
-			"con_status": 1,
-		})
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] is already active", c.Name)})
+		repository.UpdatePartialServer(c.ID, map[string]interface{}{"con_status": 1})
 		return
 	}
 	stopChan := make(chan struct{})
 	a.forwardings[ID] = &SSHForwarder{Server: *c, StopChan: stopChan}
 	a.mu.Unlock()
 
-	// Autentikasi SSH
 	var authMethod ssh.AuthMethod
 	if c.SSHKey != nil && *c.SSHKey != "" {
 		key := []byte(*c.SSHKey)
 		parsedKey, err := ssh.ParsePrivateKey(key)
 		if err != nil {
-			msg := StatusMessage{
-				ID:      id,
-				Error:   true,
-				Message: fmt.Sprintf("[%s] Failed to parse SSH key: %v", c.Name, err),
-			}
-			runtime.EventsEmit(a.ctx, "status", msg)
+			runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] Failed to parse SSH key: %v", c.Name, err)})
 			return
 		}
 		authMethod = ssh.PublicKeys(parsedKey)
 	} else if c.SSHPass != nil && *c.SSHPass != "" {
 		authMethod = ssh.Password(*c.SSHPass)
 	} else {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("[%s] No authentication method", c.Name),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] No authentication method", c.Name)})
 		return
 	}
 
-	// Setup koneksi SSH
 	sshConfig := &ssh.ClientConfig{
 		User:            c.SSHUser,
 		Auth:            []ssh.AuthMethod{authMethod},
@@ -153,80 +125,54 @@ func (a *App) StartSSHForward(id int) {
 	sshAddress := fmt.Sprintf("%s:%d", c.IP, c.SSHPort)
 	client, err := ssh.Dial("tcp", sshAddress, sshConfig)
 	if err != nil {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("[%s] SSH connection failed: %v", c.Name, err),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] SSH connection failed: %v", c.Name, err)})
 		return
 	}
 
-	defer client.Close()
-
-	// Buka listener lokal
 	listenAddress := "127.0.0.1:" + localPort
 	listener, err := net.Listen("tcp", listenAddress)
 	if err != nil {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("[%s] Failed to listen on %s: %v", c.Name, listenAddress, err),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] Failed to listen on %s: %v", c.Name, listenAddress, err)})
+		client.Close()
 		return
 	}
-	defer listener.Close()
 
-	repository.UpdatePartialServer(c.ID, map[string]interface{}{
-		"con_status": 1,
-	})
+	repository.UpdatePartialServer(c.ID, map[string]interface{}{"con_status": 1})
+	runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: false, Message: fmt.Sprintf("[%s] SSH forwarding started", c.Name)})
 
-	msg := StatusMessage{
-		ID:      id,
-		Error:   false,
-		Message: "SSH connection successful",
-	}
-	runtime.EventsEmit(a.ctx, "status", msg)
+	go func() {
+		defer client.Close()
+		defer listener.Close()
 
-	// Loop forwarding
-	for {
-		select {
-		case <-stopChan:
-			msg := StatusMessage{
-				ID:      id,
-				Error:   false,
-				Message: fmt.Sprintf("[%s] Forwarding is stoped", c.Name),
-			}
-			runtime.EventsEmit(a.ctx, "status", msg)
-			return
-		default:
-			conn, err := listener.Accept()
-			if err != nil {
-				continue
-			}
-			go func() {
-				defer conn.Close()
-				// konek ke DB remote melalui SSH
-				remoteAddress := "127.0.0.1:" + remotePort
-				rconn, err := client.Dial("tcp", remoteAddress)
+		for {
+			select {
+			case <-stopChan:
+				runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: false, Message: fmt.Sprintf("[%s] Forwarding stopped", c.Name)})
+				return
+			default:
+				conn, err := listener.Accept()
 				if err != nil {
-					msg := StatusMessage{
-						ID:      id,
-						Error:   true,
-						Message: fmt.Sprintf("[%s] Failed to connect to %s: %v", c.Name, remoteAddress, err),
-					}
-					runtime.EventsEmit(a.ctx, "status", msg)
-					return
+					runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] Listener error: %v", c.Name, err)})
+					continue
 				}
-				defer rconn.Close()
 
-				// forwarding data
-				go io.Copy(rconn, conn)
-				io.Copy(conn, rconn)
-			}()
+				go func() {
+					defer conn.Close()
+
+					remoteAddress := "127.0.0.1:" + remotePort
+					rconn, err := client.Dial("tcp", remoteAddress)
+					if err != nil {
+						runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] Failed to connect to %s: %v", c.Name, remoteAddress, err)})
+						return
+					}
+					defer rconn.Close()
+
+					go io.Copy(rconn, conn)
+					io.Copy(conn, rconn)
+				}()
+			}
 		}
-	}
+	}()
 }
 
 func (a *App) StopSSHForward(id int) {
@@ -235,37 +181,18 @@ func (a *App) StopSSHForward(id int) {
 
 	c, err := repository.GetServerByID(id)
 	if err != nil {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("Failed to fetch server: %v", err),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("Failed to fetch server: %v", err)})
 		return
 	}
 
-	repository.UpdatePartialServer(c.ID, map[string]interface{}{
-		"con_status": 0,
-	})
+	repository.UpdatePartialServer(c.ID, map[string]interface{}{"con_status": 0})
 
 	ID := strconv.Itoa(id)
-
-	fw, exists := a.forwardings[ID]
-	if !exists {
-		msg := StatusMessage{
-			ID:      id,
-			Error:   true,
-			Message: fmt.Sprintf("[%s] Forwarding not found or has been stopped", ID),
-		}
-		runtime.EventsEmit(a.ctx, "status", msg)
-		return
+	if fw, exists := a.forwardings[ID]; exists {
+		close(fw.StopChan)
+		delete(a.forwardings, ID)
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: false, Message: fmt.Sprintf("[%s] Forwarding is stopped", c.Name)})
+	} else {
+		runtime.EventsEmit(a.ctx, "status", StatusMessage{ID: id, Error: true, Message: fmt.Sprintf("[%s] Forwarding not found or already stopped", c.Name)})
 	}
-
-	// Tutup channel stop untuk menghentikan loop forwarding
-	close(fw.StopChan)
-
-	// Hapus dari map forwardings
-	delete(a.forwardings, ID)
-
-	runtime.EventsEmit(a.ctx, "status", fmt.Sprintf("[%s] Forwarding is stopped", ID))
 }
